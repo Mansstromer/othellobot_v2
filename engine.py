@@ -79,13 +79,13 @@ def load_opening_book(path: str = "book_expanded.json") -> dict[str,int]:
 def index_to_coord(idx: int) -> str:
     col = idx % 8
     row = idx // 8
-    return f"{chr(ord('A') + col)}{8 - row}"
+    return f"{chr(ord('A') + col)}{row + 1}"
 
 def coord_to_index(coord: str) -> int:
     c = coord[0].upper()
     r = int(coord[1])
     col = ord(c) - ord('A')
-    row = 8 - r
+    row = r - 1
     return row * 8 + col
 
 def print_board(board: Board, moves: list[int] | None = None) -> None:
@@ -104,7 +104,7 @@ def print_board(board: Board, moves: list[int] | None = None) -> None:
                 ch = fen[idx]
                 cell = symbols[ch]
             row_cells.append(cell)
-        print(f"{8 - r} " + " ".join(row_cells))
+        print(f"{r + 1} " + " ".join(row_cells))
 
 def choose_move(board: Board, player: int, ply: int,
                 timer: TimeManager, book: dict[str,int]) -> int:
