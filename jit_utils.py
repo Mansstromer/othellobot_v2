@@ -17,8 +17,10 @@ def legal_moves_jit(us, them):
     dcs = ( 0,  1,  1,  1, 0, -1, -1, -1)
 
     for idx in range(64):
+        # board indices map to bit index (63 - idx)
+        bidx = uint64(63 - idx)
         # only consider empty squares
-        if ((empty >> uint64(idx)) & uint64(1)) == uint64(0):
+        if ((empty >> bidx) & uint64(1)) == uint64(0):
             continue
         r = idx // 8
         c = idx % 8
@@ -32,7 +34,7 @@ def legal_moves_jit(us, them):
             # run over opponent discs
             while 0 <= rr < 8 and 0 <= cc < 8:
                 j   = rr * 8 + cc
-                bit = uint64(1) << uint64(j)  # type: ignore
+                bit = uint64(1) << uint64(63 - j)  # type: ignore
                 if (them & bit) != uint64(0):
                     count += 1
                     rr += dr; cc += dc
