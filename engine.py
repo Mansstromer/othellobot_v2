@@ -27,8 +27,8 @@ import os
 import json
 from board import Board
 from eval_utils import evaluate
-from search import iterative_deepening, last_search_depth
-import search  # for the last_search_depth variable
+from search import iterative_deepening, last_search_depth, score
+import search  # for the counters and score function
 
 # Toggle between JIT-accelerated and pure-Python move generation
 USE_JIT = True  # set to False to use Python fallback
@@ -106,6 +106,10 @@ def print_board(board: Board, moves: list[int] | None = None) -> None:
             row_cells.append(cell)
         print(f"{r + 1} " + " ".join(row_cells))
 
+def print_score(board: Board, bot_color: int) -> None:
+    val = score(board, bot_color)
+    print(f"[Score] Bot evaluation: {val}")
+
 def choose_move(board: Board, player: int, ply: int,
                 timer: TimeManager, book: dict[str,int]) -> int:
     fen = board.to_flat_fen()
@@ -134,6 +138,7 @@ def main():
     side = input("Which side should the bot play? (b=Black, w=White, both=Both) > ").strip().lower()
     bot_black = side in ('b', 'both')
     bot_white = side in ('w', 'both')
+    bot_color = 1 if bot_black and not bot_white else -1 if bot_white and not bot_black else 1
 
     book = load_opening_book()
     timer = TimeManager()
@@ -163,6 +168,7 @@ def main():
                 # flip turn
                 current_player = -current_player
                 ply += 1
+                print_score(board, bot_color)
             else:
                 coords = [index_to_coord(m) for m in moves]
                 while True:
@@ -177,6 +183,7 @@ def main():
                             current_player = -current_player
                             print("Last move undone. Board is now:")
                             print_board(board)
+                            print_score(board, bot_color)
                         else:
                             print("Nothing to undo.")
                         # re-prompt until a real move
@@ -189,6 +196,7 @@ def main():
                 board.apply_move(mv, current_player)
                 current_player = -current_player
                 ply += 1
+                print_score(board, bot_color)
 
         else:
             # pass
@@ -196,6 +204,7 @@ def main():
             print(f"{'Bot' if is_bot else 'You'} pass.")
             current_player = -current_player
             ply += 1
+            print_score(board, bot_color)
             if pass_count >= 2:
                 print("Two passes in a row: game over.")
                 break
