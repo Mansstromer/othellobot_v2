@@ -109,11 +109,16 @@ def print_board(board: Board, moves: list[int] | None = None) -> None:
 def choose_move(board: Board, player: int, ply: int,
                 timer: TimeManager, book: dict[str,int]) -> int:
     fen = board.to_flat_fen()
+    moves = get_moves(board, player)
     if fen in book:
         mv = book[fen]
-        coord = index_to_coord(mv)
-        print(f"[Book] Ply {ply} move {coord}")
-        return mv
+        if mv in moves:
+            coord = index_to_coord(mv)
+            print(f"[Book] Ply {ply} move {coord}")
+            return mv
+        else:
+            bad = index_to_coord(mv)
+            print(f"[Book] Illegal move {bad} ignored")
 
     think = timer.slice(ply)
     print(f"[Ply {ply}] Bot is thinking... allocated {think:.1f}bs")
