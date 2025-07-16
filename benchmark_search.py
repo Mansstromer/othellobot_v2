@@ -1,18 +1,12 @@
-# benchmark_search.py
-
 import time
 import random
-import pandas as pd
 from board import Board
-from search import iterative_deepening
+from moves_utils import get_moves
 
 
-def generate_positions(count: int = 10, moves: int = 6) -> list[Board]:
-    """
-    Generate `count` random midgame positions by playing `moves` random legal moves.
-    Returns a list of Board instances.
-    """
-    boards = []
+def random_boards(count: int = 5, moves: int = 6) -> list[Board]:
+    """Generate random midgame boards."""
+    boards: list[Board] = []
     for _ in range(count):
         b = Board.start_pos()
         player = 1
@@ -21,29 +15,46 @@ def generate_positions(count: int = 10, moves: int = 6) -> list[Board]:
             if not mlist:
                 player *= -1
                 continue
-            mv = random.choice(mlist)
-            b.apply_move(mv, player)
+            b.apply_move(random.choice(mlist), player)
             player *= -1
         boards.append(b)
     return boards
 
 
-def benchmark(time_per_search: float = 0.5, count: int = 10, moves: int = 6) -> pd.DataFrame:
-    """
-    Run `iterative_deepening` on random positions and record elapsed times.
-    Returns a pandas DataFrame with columns: position, elapsed_s.
-    """
-    positions = generate_positions(count=count, moves=moves)
-    results = []
-    for i, b in enumerate(positions):
-        t0 = time.monotonic()
-        _ = iterative_deepening(b, 1, time_limit=time_per_search)
-        elapsed = time.monotonic() - t0
-        results.append({"position": i, "elapsed_s": elapsed})
-    return pd.DataFrame(results)
+def measure(board: Board, iterations: int = 50000) -> tuple[float, float]:
+    """Return (jit_time, python_time) for running legal move generation."""
+    # warm-up numba compilation
+    get_moves(board, 1)
+    get_moves(board, -1)
+    start = time.perf_counter()
+    for _ in range(iterations):
+        get_moves(board, 1)
+        get_moves(board, -1)
+    jit_time = time.perf_counter() - start
+
+    # Python implementation
+    board.legal_moves(1)
+    board.legal_moves(-1)
+    start = time.perf_counter()
+    for _ in range(iterations):
+        board.legal_moves(1)
+        board.legal_moves(-1)
+    py_time = time.perf_counter() - start
+    return jit_time, py_time
+
+
+def main() -> None:
+    boards = random_boards(count=5, moves=6)
+    jit_total = 0.0
+    py_total = 0.0
+    for i, b in enumerate(boards):
+        jt, pt = measure(b)
+        jit_total += jt
+        py_total += pt
+        print(f"Position {i}: JIT {jt:.3f}s | Python {pt:.3f}s")
+    print(f"Average JIT time: {jit_total/len(boards):.3f}s")
+    print(f"Average Python time: {py_total/len(boards):.3f}s")
 
 
 if __name__ == "__main__":
-    df = benchmark(time_per_search=0.5, count=10, moves=6)
-    print(df.to_string(index=False))
-    print(f"\nAverage time: {df['elapsed_s'].mean():.3f}s")
+    main()

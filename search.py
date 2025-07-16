@@ -7,6 +7,9 @@ from board import Board
 from moves_utils import get_moves
 from eval_utils import evaluate
 
+
+last_search_depth = 0
+
 INF = 10**9
 
 class TTEntry(NamedTuple):
@@ -164,6 +167,9 @@ def iterative_deepening(root: Board, player: int, time_limit: float) -> int:
                 break
         best_move = current_best
         depth += 1
+
+    global last_search_depth
+    last_search_depth = depth - 1
 
     return best_move
 
