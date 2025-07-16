@@ -8,7 +8,10 @@ from moves_utils import get_moves
 from eval_utils import evaluate
 
 
+# Depth reached on the most recent search
 last_search_depth = 0
+# Track the deepest ply seen for the current iteration
+max_depth_reached = 0
 # instrumentation counters for performance statistics
 nodes_searched = 0
 tt_hits = 0
@@ -52,11 +55,21 @@ def is_terminal(b: Board) -> bool:
     return not get_moves(b, 1) and not get_moves(b, -1)
 
 def final_eval(b: Board) -> int:
-    fen = b.to_flat_fen()
-    return fen.count('X') - fen.count('O')
+    """Return \+INF or \-INF depending on who wins the finished board."""
+    black = bin(b.black).count("1")
+    white = bin(b.white).count("1")
+    if black > white:
+        return INF
+    if white > black:
+        return -INF
+    return 0
 
-def negamax(b: Board, player: int, depth: int, alpha: int, beta: int) -> int:
-    global nodes_searched
+def score(b: Board, player: int) -> int:
+    """Evaluation from ``player``'s perspective with infinite endgame values."""
+    return final_eval(b) * player if is_terminal(b) else evaluate(b, player)
+
+def negamax(b: Board, player: int, depth: int, alpha: int, beta: int, ply: int = 0) -> int:
+    global nodes_searched, max_depth_reached
     nodes_searched += 1
     key = (b.black, b.white, player)
     orig_alpha = alpha
@@ -65,19 +78,23 @@ def negamax(b: Board, player: int, depth: int, alpha: int, beta: int) -> int:
         return val
 
     if depth == 0 or is_terminal(b):
+        if ply > max_depth_reached:
+            max_depth_reached = ply
         return player * (final_eval(b) if is_terminal(b) else evaluate(b, player))
 
     moves = get_moves(b, player)
     if not moves:
         # pass or game end
         if not get_moves(b, -player):
+            if ply > max_depth_reached:
+                max_depth_reached = ply
             return player * final_eval(b)
-        return -negamax(b, -player, depth, -beta, -alpha)
+        return -negamax(b, -player, depth, -beta, -alpha, ply + 1)
 
     best_score = -INF
     for mv in moves:
         b.apply_move(mv, player)
-        score = -negamax(b, -player, depth-1, -beta, alpha)
+        score = -negamax(b, -player, depth-1, -beta, alpha, ply + 1)
         b.undo()
         if score > best_score:
             best_score = score
@@ -95,12 +112,14 @@ def _root_worker(args):
     b = Board(black, white)
     b.apply_move(mv, player)
     # local counters
-    global nodes_searched, tt_hits, cutoffs
+    global nodes_searched, tt_hits, cutoffs, max_depth_reached, last_search_depth
     nodes_searched = 0
     tt_hits = 0
     cutoffs = 0
-    score = -negamax(b, -player, depth, -INF, INF)
-    return mv, score, nodes_searched, tt_hits, cutoffs
+    max_depth_reached = 0
+    last_search_depth = 0
+    score = -negamax(b, -player, depth, -INF, INF, 1)
+    return mv, score, nodes_searched, tt_hits, cutoffs, max_depth_reached
 
 def iterative_deepening(root: Board, player: int, time_limit: float) -> int:
     """
@@ -110,10 +129,12 @@ def iterative_deepening(root: Board, player: int, time_limit: float) -> int:
     """
     start_time = time.monotonic()
     deadline = start_time + time_limit
-    global nodes_searched, tt_hits, cutoffs
+    global nodes_searched, tt_hits, cutoffs, max_depth_reached, last_search_depth
     nodes_searched = 0
     tt_hits = 0
     cutoffs = 0
+    max_depth_reached = 0
+    last_search_depth = 0
 
     moves = get_moves(root, player)
     if not moves:
@@ -125,8 +146,10 @@ def iterative_deepening(root: Board, player: int, time_limit: float) -> int:
 
     while True:
         now = time.monotonic()
-        if now >= deadline:
+        if now >= deadline or is_terminal(root):
             break
+
+        max_depth_reached = 0
 
         # PV move ordering: try last best_move first
         if depth > 1 and best_move in moves:
@@ -152,7 +175,7 @@ def iterative_deepening(root: Board, player: int, time_limit: float) -> int:
                 if time.monotonic() >= deadline:
                     break
                 root.apply_move(mv, player)
-                score = -negamax(root, -player, depth-1, -beta, -alpha)
+                score = -negamax(root, -player, depth-1, -beta, -alpha, 1)
                 root.undo()
                 if score > best_score:
                     best_score = score
@@ -160,11 +183,14 @@ def iterative_deepening(root: Board, player: int, time_limit: float) -> int:
                 alpha = max(alpha, score)
                 # aspiration fail: full re-search
                 if alpha >= beta:
-                    best_score = -negamax(root, player, depth, -INF, INF)
+                    best_score = -negamax(root, player, depth, -INF, INF, 0)
                     current_best = mv
                     break
             prev_score = best_score
             best_move = current_best
+            last_search_depth = max_depth_reached
+            if max_depth_reached < depth:
+                break
             depth += 1
             continue
 
@@ -178,20 +204,22 @@ def iterative_deepening(root: Board, player: int, time_limit: float) -> int:
             futures = {ex.submit(_root_worker, arg): arg[3] for arg in args}
             try:
                 for fut in concurrent.futures.as_completed(futures, timeout=time_left):
-                    mv, score, n, tt, co = fut.result()
+                    mv, score, n, tt, co, d = fut.result()
                     nodes_searched += n
                     tt_hits += tt
                     cutoffs += co
+                    if d > max_depth_reached:
+                        max_depth_reached = d
                     if score > best_score:
                         best_score = score
                         current_best = mv
             except concurrent.futures.TimeoutError:
                 break
         best_move = current_best
+        last_search_depth = max_depth_reached
+        if max_depth_reached < depth:
+            break
         depth += 1
-
-    global last_search_depth
-    last_search_depth = depth - 1
 
     return best_move
 
