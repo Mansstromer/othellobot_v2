@@ -55,7 +55,7 @@ else:
     from moves_utils import get_moves  # pure-Python fallback
 
 TOTAL_TIME = 600.0   # 10 minutes per game, in seconds
-SAFETY     = 0.95    # use only 95% of each slice
+SAFETY     = 0.8    # use only 95% of each slice
 
 class TimeManager:
     def __init__(self):
@@ -69,7 +69,7 @@ class TimeManager:
     def spend(self, used: float) -> None:
         self.remaining = max(0.0, self.remaining - used)
 
-def load_opening_book(path: str = "book.json") -> dict[str,int]:
+def load_opening_book(path: str = "book_expanded.json") -> dict[str,int]:
     if os.path.exists(path):
         with open(path, 'r') as f:
             data = json.load(f)
@@ -91,7 +91,7 @@ def coord_to_index(coord: str) -> int:
 def print_board(board: Board, moves: list[int] | None = None) -> None:
     """Print the board with column letters and row numbers; highlight legal moves with '*'"""
     fen = board.to_flat_fen()
-    symbols = {'X': 'B', 'O': 'W', '.': '.'}
+    symbols = {'X': 'X', 'O': '0', '.': '.'}
     move_set = set(moves) if moves else set()
     print("  " + " ".join(chr(ord('A') + i) for i in range(8)))
     for r in range(8):
@@ -116,7 +116,7 @@ def choose_move(board: Board, player: int, ply: int,
         return mv
 
     think = timer.slice(ply)
-    print(f"[Ply {ply}] Bot is thinking... allocated {think:.1f}s")
+    print(f"[Ply {ply}] Bot is thinking... allocated {think:.1f}bs")
     t0 = time.monotonic()
     mv = iterative_deepening(board, player, time_limit=think)
     used = time.monotonic() - t0
@@ -139,12 +139,14 @@ def main():
     timer = TimeManager()
     board = Board.start_pos()
     ply = 0
+    current_player = 1  # 1 == Black, -1 == White
+    pass_count = 0
 
     while True:
         print("\nCurrent board:")
-        player = 1 if ply % 2 == 0 else -1
-        is_bot = (player == 1 and bot_black) or (player == -1 and bot_white)
-        moves = get_moves(board, player)
+        is_bot = (current_player == 1 and bot_black) or (current_player == -1 and bot_white)
+        moves = get_moves(board, current_player)
+
         if not is_bot and moves:
             print_board(board, moves)
         else:
@@ -152,40 +154,70 @@ def main():
         print(f"Time remaining: {timer.remaining:.1f}s")
 
         if moves:
+            pass_count = 0
             if is_bot:
-                mv = choose_move(board, player, ply, timer, book)
+                mv = choose_move(board, current_player, ply, timer, book)
                 coord = index_to_coord(mv)
-                print(f"Bot plays {'Black' if player==1 else 'White'}: {coord}")
-                board.apply_move(mv, player)
+                print(f"Bot plays {'Black' if current_player==1 else 'White'}: {coord}")
+                board.apply_move(mv, current_player)
+                # flip turn
+                current_player = -current_player
                 ply += 1
             else:
                 coords = [index_to_coord(m) for m in moves]
                 while True:
-                    inp = input(f"Your move {coords} > ").strip()
-                    if inp.lower() == 'stop':
+                    inp = input(f"Your move {coords} > ").strip().lower()
+                    if inp == 'stop':
                         print("Game stopped by user."); return
-                    if inp.lower() == 'undo':
+                    if inp == 'undo':
                         if ply > 0:
-                            board.undo(); ply -= 1
-                            print("Last move undone. Board is now:"); print_board(board)
+                            board.undo()
+                            ply  -= 1
+                            # rewind turn as well
+                            current_player = -current_player
+                            print("Last move undone. Board is now:")
+                            print_board(board)
                         else:
                             print("Nothing to undo.")
+                        # re-prompt until a real move
                         continue
                     if inp.upper() in coords:
-                        mv = coord_to_index(inp); break
+                        mv = coord_to_index(inp)
+                        break
                     print(f"Invalid input. Enter one of {coords}, 'undo', or 'stop'.")
-                print(f"You play {'Black' if player==1 else 'White'}: {inp.upper()}")
-                board.apply_move(mv, player)
+                print(f"You play {'Black' if current_player==1 else 'White'}: {inp.upper()}")
+                board.apply_move(mv, current_player)
+                current_player = -current_player
                 ply += 1
+
         else:
+            # pass
+            pass_count += 1
             print(f"{'Bot' if is_bot else 'You'} pass.")
+            current_player = -current_player
+            ply += 1
+            if pass_count >= 2:
+                print("Two passes in a row: game over.")
+                break
 
-        if not (get_moves(board,1) or get_moves(board,-1)):
-            print("Game over."); break
+
+        # check for time exhaustion
         if timer.remaining <= 0:
-            print("Bot clock exhausted! Bot loses on time."); break
+            print("Bot clock exhausted! Bot loses on time.")
+            break
 
-    print("Final board:"); print_board(board)
+    # game over: tally and report final score
+    black_count = bin(board.black).count('1')
+    white_count = bin(board.white).count('1')
+    print("Final board:")
+    print_board(board)
+    print(f"Score — Black: {black_count}, White: {white_count}")
+    if black_count > white_count:
+        print("Black wins!")
+    elif white_count > black_count:
+        print("White wins!")
+    else:
+        print("It's a tie!")
 
 if __name__ == '__main__':
     main()

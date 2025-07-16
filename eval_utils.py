@@ -25,8 +25,8 @@ def evaluate(board, player):
         elif opp_bb & mask: pos -= w
 
     # mobility
-    my_m  = int(bin(int(legal_moves_jit(np.uint64(my_bb),  np.uint64(opp_bb)))).count('1'))
-    opp_m = int(bin(int(legal_moves_jit(np.uint64(opp_bb), np.uint64(my_bb)))).count('1'))
+    my_m  = int(bin(int(legal_moves_jit(np.uint64(my_bb),  np.uint64(opp_bb)))).count('1')) # type: ignore
+    opp_m = int(bin(int(legal_moves_jit(np.uint64(opp_bb), np.uint64(my_bb)))).count('1')) # type: ignore 
     mob   = (my_m - opp_m) * 5
 
     # corners
