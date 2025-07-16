@@ -1,3 +1,5 @@
+# search.py
+
 import time
 import concurrent.futures
 from typing import NamedTuple
@@ -37,15 +39,12 @@ def tt_store(key, depth, value, alpha, beta, orig_alpha):
         flag = 'EXACT'
     trans_table[key] = TTEntry(depth, flag, value)
 
-
 def is_terminal(b: Board) -> bool:
     return not get_moves(b, 1) and not get_moves(b, -1)
-
 
 def final_eval(b: Board) -> int:
     fen = b.to_flat_fen()
     return fen.count('X') - fen.count('O')
-
 
 def negamax(b: Board, player: int, depth: int, alpha: int, beta: int) -> int:
     key = (b.black, b.white, player)
@@ -59,6 +58,7 @@ def negamax(b: Board, player: int, depth: int, alpha: int, beta: int) -> int:
 
     moves = get_moves(b, player)
     if not moves:
+        # pass or game end
         if not get_moves(b, -player):
             return player * final_eval(b)
         return -negamax(b, -player, depth, -beta, -alpha)
@@ -77,7 +77,6 @@ def negamax(b: Board, player: int, depth: int, alpha: int, beta: int) -> int:
     tt_store(key, depth, best_score, alpha, beta, orig_alpha)
     return best_score
 
-
 def _root_worker(args):
     black, white, player, mv, depth = args
     b = Board(black, white)
@@ -85,55 +84,88 @@ def _root_worker(args):
     score = -negamax(b, -player, depth, -INF, INF)
     return mv, score
 
-
 def iterative_deepening(root: Board, player: int, time_limit: float) -> int:
-    start = time.time()
+    """
+    Iterative-deepening negamax with alpha-beta, transposition table,
+    principal-variation move ordering, aspiration windows, exact endgame,
+    and a strict monotonic deadline.
+    """
+    start_time = time.monotonic()
+    deadline = start_time + time_limit
+
     moves = get_moves(root, player)
     if not moves:
         return 0
+
     best_move = moves[0]
+    prev_score = 0
     depth = 1
 
     while True:
-        elapsed = time.time() - start
-        if elapsed >= time_limit:
+        now = time.monotonic()
+        if now >= deadline:
             break
-        current_best = best_move
 
-        # parallel root search at deeper plies
-        if depth >= 3:
-            best_score = -INF
-            args = [(root.black, root.white, player, mv, depth-1) for mv in moves]
-            time_left = time_limit - elapsed
-            with concurrent.futures.ProcessPoolExecutor() as ex:
-                futures = {ex.submit(_root_worker, arg): arg[3] for arg in args}
-                try:
-                    for fut in concurrent.futures.as_completed(futures, timeout=time_left):
-                        mv, score = fut.result()
-                        if score > best_score:
-                            best_score = score
-                            current_best = mv
-                except concurrent.futures.TimeoutError:
-                    # time ran out; proceed with best found so far
-                    pass
-            best_move = current_best
+        # PV move ordering: try last best_move first
+        if depth > 1 and best_move in moves:
+            moves = [best_move] + [m for m in moves if m != best_move]
+
+        # Set up aspiration window
+        if depth > 1:
+            delta = 50  # centipawns
+            alpha = prev_score - delta
+            beta  = prev_score + delta
+            alpha = max(-INF, alpha)
+            beta  = min(INF, beta)
         else:
             alpha = -INF
+            beta  = INF
+
+        current_best = best_move
+
+        # Shallow: serial search
+        if depth < 3:
+            best_score = -INF
             for mv in moves:
-                elapsed = time.time() - start
-                if elapsed >= time_limit:
+                if time.monotonic() >= deadline:
                     break
                 root.apply_move(mv, player)
-                score = -negamax(root, -player, depth-1, -INF, INF)
+                score = -negamax(root, -player, depth-1, -beta, -alpha)
                 root.undo()
-                if score > alpha:
-                    alpha = score
+                if score > best_score:
+                    best_score = score
                     current_best = mv
+                alpha = max(alpha, score)
+                # aspiration fail: full re-search
+                if alpha >= beta:
+                    best_score = -negamax(root, player, depth, -INF, INF)
+                    current_best = mv
+                    break
+            prev_score = best_score
             best_move = current_best
+            depth += 1
+            continue
 
+        # Deep: parallel root search
+        time_left = deadline - time.monotonic()
+        if time_left <= 0:
+            break
+        best_score = -INF
+        args = [(root.black, root.white, player, mv, depth-1) for mv in moves]
+        with concurrent.futures.ProcessPoolExecutor() as ex:
+            futures = {ex.submit(_root_worker, arg): arg[3] for arg in args}
+            try:
+                for fut in concurrent.futures.as_completed(futures, timeout=time_left):
+                    mv, score = fut.result()
+                    if score > best_score:
+                        best_score = score
+                        current_best = mv
+            except concurrent.futures.TimeoutError:
+                break
+        best_move = current_best
         depth += 1
-    return best_move
 
+    return best_move
 
 if __name__ == '__main__':
     b = Board.start_pos()
