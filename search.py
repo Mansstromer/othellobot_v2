@@ -9,6 +9,10 @@ from eval_utils import evaluate
 
 
 last_search_depth = 0
+# instrumentation counters for performance statistics
+nodes_searched = 0
+tt_hits = 0
+cutoffs = 0
 
 INF = 10**9
 
@@ -23,6 +27,8 @@ trans_table: dict[tuple[int,int,int], TTEntry] = {}
 def tt_lookup(key, depth, alpha, beta):
     entry = trans_table.get(key)
     if entry and entry.depth >= depth:
+        global tt_hits
+        tt_hits += 1
         if entry.flag == 'EXACT':
             return entry.value, alpha, beta
         if entry.flag == 'LOWER':
@@ -50,6 +56,8 @@ def final_eval(b: Board) -> int:
     return fen.count('X') - fen.count('O')
 
 def negamax(b: Board, player: int, depth: int, alpha: int, beta: int) -> int:
+    global nodes_searched
+    nodes_searched += 1
     key = (b.black, b.white, player)
     orig_alpha = alpha
     val, alpha, beta = tt_lookup(key, depth, alpha, beta)
@@ -75,6 +83,8 @@ def negamax(b: Board, player: int, depth: int, alpha: int, beta: int) -> int:
             best_score = score
         alpha = max(alpha, score)
         if alpha >= beta:
+            global cutoffs
+            cutoffs += 1
             break
 
     tt_store(key, depth, best_score, alpha, beta, orig_alpha)
@@ -84,8 +94,13 @@ def _root_worker(args):
     black, white, player, mv, depth = args
     b = Board(black, white)
     b.apply_move(mv, player)
+    # local counters
+    global nodes_searched, tt_hits, cutoffs
+    nodes_searched = 0
+    tt_hits = 0
+    cutoffs = 0
     score = -negamax(b, -player, depth, -INF, INF)
-    return mv, score
+    return mv, score, nodes_searched, tt_hits, cutoffs
 
 def iterative_deepening(root: Board, player: int, time_limit: float) -> int:
     """
@@ -95,6 +110,10 @@ def iterative_deepening(root: Board, player: int, time_limit: float) -> int:
     """
     start_time = time.monotonic()
     deadline = start_time + time_limit
+    global nodes_searched, tt_hits, cutoffs
+    nodes_searched = 0
+    tt_hits = 0
+    cutoffs = 0
 
     moves = get_moves(root, player)
     if not moves:
@@ -159,7 +178,10 @@ def iterative_deepening(root: Board, player: int, time_limit: float) -> int:
             futures = {ex.submit(_root_worker, arg): arg[3] for arg in args}
             try:
                 for fut in concurrent.futures.as_completed(futures, timeout=time_left):
-                    mv, score = fut.result()
+                    mv, score, n, tt, co = fut.result()
+                    nodes_searched += n
+                    tt_hits += tt
+                    cutoffs += co
                     if score > best_score:
                         best_score = score
                         current_best = mv
