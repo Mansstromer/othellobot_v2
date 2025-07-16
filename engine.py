@@ -1,4 +1,26 @@
 # engine.py
+"""Othello engine front end
+
+Performance accelerations used when running this file:
+
+* **Bitboards** – board state is kept as two 64‑bit integers which makes
+  flipping and move lookups fast.
+* **Numba JIT move generation** – when ``USE_JIT`` is enabled the legal move
+  generator is compiled with Numba (``legal_moves_jit``).  The compiled version
+  runs in ``nopython`` mode with ``fastmath`` and results are cached so the
+  costly compilation happens only once.
+* **Iterative deepening negamax search** implemented in :mod:`search`.  The
+  search uses alpha–beta pruning, a transposition table, principal variation
+  (PV) move ordering and aspiration windows.  For deeper levels the root moves
+  are searched in parallel using ``ProcessPoolExecutor``.
+* **Opening book** – early moves can be played instantly from ``book.json``.
+* **Time management** – ``TimeManager`` slices the total allotted time per move
+  so the engine does not exceed the game clock.
+
+Instrumentation counters for nodes, transposition‑table hits and cutoffs are
+recorded for every move and printed so that the performance of the JIT and
+non‑JIT modes can be compared.
+"""
 
 import time
 import os
@@ -100,7 +122,12 @@ def choose_move(board: Board, player: int, ply: int,
     used = time.monotonic() - t0
     timer.spend(used)
     depth = search.last_search_depth
-    print(f"[Ply {ply}] Think {think:.1f}s, used {used:.2f}s, remain {timer.remaining:.2f}s, depth {depth}")
+    nodes = search.nodes_searched
+    tt = search.tt_hits
+    cuts = search.cutoffs
+    print(
+        f"[Ply {ply}] Think {think:.1f}s, used {used:.2f}s, remain {timer.remaining:.2f}s, depth {depth}, nodes {nodes}, TT {tt}, cutoffs {cuts}"
+    )
     return mv
 
 def main():
