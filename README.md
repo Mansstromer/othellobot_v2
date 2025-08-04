@@ -43,6 +43,12 @@ python engine.py
 ```
 Follow the prompts to choose sides and play against the engine. Type `undo` to revert the last move or `stop` to exit.
 
+Prefer a windowed interface? Launch the Tkinter GUI:
+```bash
+python ui.py
+```
+Click on highlighted squares to play your moves.
+
 ## 🧪 Running Tests
 
 Execute the test suite with:
